@@ -1,0 +1,395 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Code Pipeline Initiation Template.
+
+Parameters:
+  #as we are using GITHUB directly no need of WebHOOK
+  WebhookBucket:
+    Description: webhook bucket name
+    Type: String
+    Default: 
+  WebHookObjectKey:
+    Description: webhook object key
+    Type: String
+    Default: ''
+  # Newly added to store build and pipeline artifacts in s3 bucket  
+  ArtifactStoreS3Location:
+    Type: String
+    Description: Name of the S3 bucket to store CodePipeline artificat.
+    Default: kd-rest-apps-ohio-build-artifact-output-bucket 
+  GitLabProjectName:
+    Description: GitLab project/repo name
+    Type: String
+    Default: 
+
+  PipelineName:
+    Description: A name for the pipeline
+    Type: String
+    Default: 
+
+  TemplateFileName1:
+    Default: 
+    Description: Path of the Infra CloudFormation template that creates common resources for the BU projects
+    Type: String
+    
+  StackNameValue1:
+    Default: 
+    Description: Name of the Infra CloudFormation stack
+    Type: String
+
+  StackConfigValue1PreProd:
+    Default: 
+    Description: The parameter file path for the CloudFormation template that creates resources in PreProd account
+    Type: String
+
+  TemplateFileName2:
+    Default: 
+    Description: Path of the CloudFormation template that creates necessary resources for the specific project
+    Type: String
+  StackNameValue2:
+    Default: 
+    Description: Name of the Application CloudFormation stack
+    Type: String
+
+  StackConfigValue2PreProd:
+    Default: 
+    Description: The parameter file name for the CloudFormation template that creates necessary respurces for the specific project in PreProd account
+    Type: String
+
+  S3ArtifactParameter:
+    Description: Name of the S3 Bucket for pipeline artifacts
+    # Type: 'AWS::SSM::Parameter::Value<String>'
+    # Default: 's3_artifact1'
+    Type: String
+    Default: carrier-devops-pipeline-artifacts
+
+  CMKS3ArnParameter:
+    Description: S3 CMK Arn Value
+    # Type: 'AWS::SSM::Parameter::Value<String>'
+    # Default: 's3_cmk_arn'
+    Type: String
+    Default: arn:aws:kms
+
+  CodeBuildRoleArnParameter:
+    Description: SSM Parameter for CodeBuild Role Arn
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: 'codebuildrole_arn'
+
+  PreProdCrossAccountRoleArn:
+    Description: Arn for the PreProd Cross Account Role
+    Type: String
+    Default: arn:aws:iam::<enter account no.>:role/CICDChildRole
+
+  S3ArtifactPreProd:
+    Description: Name of local S3 bucket for artifacts
+    Type: String
+    Default: 
+
+
+
+  ProjectTeam:
+    Description: name of project team
+    Type: String
+    Default: AnA
+
+  ProjectType:
+    Description: type of pipeline
+    Type: String
+    AllowedValues:
+      - multi-account-pipeline-test
+      - multi-account-pipeline-master
+
+
+  
+
+Resources:
+  CodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub CodeBuildRole-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /service-role/
+      Policies:
+        - PolicyName: "CodeBuildVPCAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "cloudformation:Get*"
+                  - "cloudformation:Describe*"
+                  - "cloudformation:List*"
+                Resource: '*'
+              - Effect: "Allow"
+                Action:
+                  - "codecommit:ListBranches"
+                  - "codecommit:ListRepositories"
+                  - "codecommit:BatchGetRepositories"
+                  - "codecommit:Get*"
+                  - "codecommit:GitPull"
+                Resource:
+                  - Fn::Sub: arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CFNTemplateRepoName}
+              - Effect: "Allow"
+                Action:
+                  - "ec2:Describe*"
+                  - "cloudformation:ValidateTemplate"
+                  - "elasticloadbalancing:Describe*"
+                  - "autoscaling:Describe*"
+                  - "iam:Get*"
+                  - "iam:List*"
+                  - "logs:Describe*"
+                  - "logs:Get*"
+                  - "tag:Get*"
+                Resource:
+                  - "*"
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - Fn::Sub: arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:ListBucket"
+                Resource:
+                  - Fn::Sub: arn:aws:s3:::codepipeline-${AWS::Region}-*
+                  - Fn::Sub: arn:aws:s3:::${ArtifactStoreS3Location}/*
+                  - Fn::Sub: arn:aws:s3:::${ArtifactStoreS3Location}
+
+
+  ValidateCFNCodeBuildProjectPreProd:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub $PreProd
+      Description: Validates CloudFormation syntax
+     #Here the role is referenced from parameter store, but now we will create the role from pipeline cft itself
+     #ServiceRole: !Ref CodeBuildRoleArnParameter
+      ServiceRole: !GetAtt [ CodeBuildRole, Arn ]
+      Artifacts:
+       #Type: CODEPIPELINE #previous
+        Type: S3
+        Location: !Ref ArtifactStoreS3Location
+        Name: !Sub CodeBuildCFN-${AWS::StackName}
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:3.0
+        EnvironmentVariables:
+            - Name: Template1
+              Value:
+                Ref: TemplateFileName1
+            - Name: Template2
+              Value:
+                Ref: TemplateFileName2
+            - Name: LocalS3Bucket
+              Value:
+                Ref: S3ArtifactPreProd
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubSourceCodeRepoURI
+        Auth:
+          Type: CODECONNECTIONS
+         #Resource: #Paste the ARN of the CodeStar Connection
+          Resource: arn:aws:codeconnections:us-east-2:211125769392:connection/75bf7b54-5064-4c73-bc2a-9d53188df2f4
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.8
+              commands:
+                - echo Entered the install phase...
+                - apt-key adv --refresh-keys --keyserver keyserver.ubuntu.com
+                - apt-get update -y
+                - pip3 install --upgrade pip
+                - ln -s /usr/local/bin/pip /usr/bin/pip
+            pre_build:
+              commands:
+                - echo Entered the pre_build phase...
+                - aws configure set default.region us-east-1
+            build:
+              commands:
+                - echo building...
+                - aws cloudformation validate-template --template-body file://${Template1}
+                - aws cloudformation validate-template --template-body file://${Template2}
+
+                - aws s3 cp rhvac-pipeline/infrastructure/templates s3://${LocalS3Bucket}/infrastructure/templates --acl bucket-owner-full-control --recursive
+                
+                - aws s3 cp rhvac-pipeline/application/templates s3://${LocalS3Bucket}/application/templates --acl bucket-owner-full-control --recursive
+                
+      TimeoutInMinutes: 10
+      Tags:
+        - Key: Application
+          Value: !Ref Application
+        
+
+  CodePipelineRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub CodePipelineRole-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: "CodePipelineVPCAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:DeleteObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:ListBucket"
+                  - "s3:PutObject"
+                  - "s3:GetBucketPolicy"
+                Resource:
+                  - Fn::Sub: arn:aws:s3:::${ArtifactStoreS3Location}
+                  - Fn::Sub: arn:aws:s3:::${ArtifactStoreS3Location}/*
+              - Effect: "Allow"
+                Action:
+                  - "sns:Publish"
+                Resource: '*'
+              - Effect: "Allow"
+                Action:
+                  - "cloudformation:CreateChangeSet"
+                  - "cloudformation:CreateStack"
+                  - "cloudformation:CreateUploadBucket"
+                  - "cloudformation:DeleteStack"
+                  - "cloudformation:Describe*"
+                  - "cloudformation:List*"
+                  - "cloudformation:UpdateStack"
+                  - "cloudformation:ValidateTemplate"
+                  - "cloudformation:ExecuteChangeSet"
+                Resource: '*'
+              - Effect: "Allow"
+                Action:
+                  - "codebuild:StartBuild"
+                  - "codebuild:BatchGetBuilds"
+                Resource: '*'
+              - Effect: "Allow"
+                Action:
+                  - "iam:PassRole"
+                Resource:
+                  - Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/CloudFormationRole-${AWS::StackName}
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Ref 'PipelineName'
+      RoleArn: !GetAtt [ CodePipelineRole, Arn ]
+      # RoleArn: !Ref PipelineRoleArnParameter
+      #RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/role  #old
+      ArtifactStore:
+         #Location: !Ref 'S3ArtifactParameter'
+          Location: !Ref 'ArtifactStoreS3Location'
+          Type: S3
+          EncryptionKey:
+            Id: !Ref 'CMKS3ArnParameter'
+            Type: KMS
+      DisableInboundStageTransitions: []
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              inputArtifacts: []  
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Configuration:
+                ConnectionArn: arn:aws:codeconnections:us-east-2:211125769392:connection/75bf7b54-5064-4c73-bc2a-9d53188df2f4
+                BranchName: main
+                RepositoryName: "imran2306/kd-rest-apps"
+                OutputArtifactFormat: CODE_ZIP                 
+              RunOrder: 1
+                #S3Bucket: !Ref WebhookBucket
+                #S3ObjectKey: !Ref WebHookObjectKey
+                # PollForSourceChanges: false
+              #OutputArtifacts:
+              #  - Name: SCCheckoutArtifact #old
+              
+        - Name: Build-PreProd
+          Actions:
+            - Name: ValidateCode-PreProd
+              InputArtifacts:
+                - Name: SourceArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref ValidateCFNCodeBuildProjectPreProd
+              OutputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1
+
+        - Name: Deploy-in-PreProd
+          Actions:
+            - Name: Create-SetupPrerequisites-PreProd
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              RoleArn: !Ref PreProdCrossAccountRoleArn
+              InputArtifacts:
+                - Name: BuildArtifact
+              Configuration:
+                ActionMode: CREATE_UPDATE              
+                Capabilities: CAPABILITY_NAMED_IAM
+                OutputFileName: StaginVPCStackOutputFile                
+                RoleArn: !Ref PreProdCrossAccountRoleArn
+                StackName: !Ref StackNameValue1
+                # TemplateConfiguration: !Sub "SourceOutput::${StackConfigValue1}"
+                TemplateConfiguration: !Sub "BuildArtifact::${StackConfigValue1PreProd}"
+                TemplatePath: !Sub "BuildArtifact::${TemplateFileName1}"
+              RunOrder: 1
+
+            - Name: ERP1-PreProd-<project name>
+              RoleArn: !Ref PreProdCrossAccountRoleArn
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              InputArtifacts:
+                - Name: BuildArtifact
+              Configuration:
+                Capabilities: CAPABILITY_NAMED_IAM
+                ActionMode: CREATE_UPDATE
+               #
+               #RoleArn: !Ref PreProdCrossAccountRoleArn
+                StackName: !Ref StackNameValue2
+                TemplateConfiguration: !Sub "BuildArtifact::${StackConfigValue2PreProd}"
+                TemplatePath: !Sub "BuildArtifact::${TemplateFileName2}"
+              RunOrder: 2
+
+
+      Tags:
+          - Key: Application
+            Value: !Ref Application
+         
