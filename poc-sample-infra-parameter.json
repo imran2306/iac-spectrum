@@ -1,0 +1,30 @@
+{
+    "Parameters": {
+      "ResName": "",
+      "RegionName": "",
+      "Environment": "",
+      "SystemName": "",
+      "LambdaCRVersion": "",    
+      "SubscriptionEndPoint": "<Resorce alarms sns subscriber>",
+      "SubscriptionEndPointBudget": "<Budget sns subscriber>",
+      "NameForBudgetWithTagsFilter": "Budget-<BU>-Tags",
+      "NameForBudgetForWholeAccount": "Budget-<BU>-WholeAccount",
+      "BudgetAmountWithTagsFilter": "",
+      "BudgetAmountForWholeAccount": "",
+      "S3BucketSizeThreshold": "",
+      "S3BucketTotalLatencyThreshold": "",  
+      "ApplicationName": "",
+      "ApplicationID": "",
+      "ApplicationOwner": "",
+      "BusinessUnit": "",
+      "Department": "",
+      "CostCenter": "",
+      "ServerType": "",
+      "ComplianceRequirement": "",
+      "Entity": "",
+      "Region": "",
+      "UsagePattern": "",
+      "MaxLifeTime": "",
+      "AppCat": ""
+    }
+  }

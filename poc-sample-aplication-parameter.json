@@ -1,0 +1,33 @@
+{
+    "Parameters": {
+       "ResName": "",   
+       "RegionName": "",
+       "ERPName": "",
+       "Environment": "", 
+       "SubscriptionEndPoint": "",
+       "DynamoDBConfigFileVersion": "v1",
+       "GlueJobVersion": "v1",
+       "StepFunctionVersion": "v1", 
+       "LambdaVersion": "v1",       
+       "SageMakerInstanceType": "ml.t2.medium",
+       "SageMakerInstanceVolume": "5",    
+       "ApplicationName": "",
+       "ApplicationID": "",
+       "ApplicationOwner": "",
+       "BusinessUnit": "",
+       "Department": "",
+       "CostCenter": "",
+       "ServerType": "N/A",
+       "ComplianceRequirement": "N/A",
+       "Entity": "N/A",
+       "Region": "USEast",
+       "UsagePattern": "",
+       "MaxLifeTime": "",
+       "AppCat": "",
+       "CloudwatchSchedule": "",
+       "CloudwatchRuleState": "DISABLED",
+       "UserData": "#!/bin/bash"
+    }
+  }
+  
+  

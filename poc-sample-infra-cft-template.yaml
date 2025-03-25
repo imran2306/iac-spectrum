@@ -1,0 +1,614 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template to create static Resources, Glue Connections, S3, DynamoDB Tables, CloudWatch Alarms for S3 and DynamoDB Tables, Budget' 
+
+Parameters:
+
+  ## Resource Naming Convention 
+    
+    ResName:
+      Description: Specify 2 characters Environment, 2 characters of Application/Function,This will also be used in the resource naming
+      Type: String
+      Default: <Select the BU Resource name>
+      # AllowedValues:
+      # - ppchv
+      # - pprhv
+      # - ppfs
+      # - ppdl
+      # - ppra
+
+    RegionName:
+      Description: Specify 2 characters RegionName. 
+      Type: String
+      Default: nv
+      # AllowedValues:
+      # - nv
+      # - oh
+      # - or
+
+    Environment:
+      Description: Environment for the Service, This will also be used in the resource naming
+      Type: String
+      Default: preprod
+      # AllowedValues:
+      # - dev
+      # - preprod
+      # - prod
+
+    SystemName:
+       Description: Select The system for which resources have to be created.
+       Type: String
+       Default: <enter system name>
+       # AllowedValues:
+       #   - rhvac
+       #   - chvac
+       #   - fsp
+       #   - corp
+       #   - ccr-glue
+
+  # Lambda Version Parameters
+    LambdaCRVersion:
+      Description: S3 object key version of the Zip package. This enables to update the lambda 
+      Type: String
+
+  ## SNS Parameters
+    SubscriptionEndPoint:
+      Type: String
+      Description: Provide a Valid Email or Preferrably DL(Distribution List EMAIL) 
+      
+    SubscriptionEndPointBudget:
+      Type: String
+      Description: Provide a Valid Email or Preferrably DL(Distribution List EMAIL) 
+
+
+  # Alarms Thresholds
+    S3BucketSizeThreshold :
+      Type: String
+      Description: Provide a Threshold value for the S3 Buckets Size to get Notified when the size limit is breached.
+      # Default:  ""
+    S3BucketTotalLatencyThreshold :
+      Type: String
+      Description: Provide a Threshold value for the S3 Bucket Total Latency - The elapsed per-request time from the first byte received to the last byte sent to an Amazon S3 bucket.
+      # Default:  
+    DynamoDBReadCapacityThreshold :
+      Type: String
+      Description: Threshold value for the Dynamo DB Tables Read capacity.
+      Default:  
+    DynamoDBWriteCapacityThreshold :
+      Type: String
+      Description: Threshold value for the D  ynamo DB Tables Write capacity.
+      Default:  
+
+  ## Budget Alarms
+    NameForBudgetWithTagsFilter:
+      Description: The name of the budget
+      Type: String
+      # Default: !Ref NameForBudgetWithTagsFilter
+    NameForBudgetForWholeAccount:
+      Description: The name of the budget
+      Type: String
+      # Default: Budget-<BU>-WholeAccount
+    BudgetAmountWithTagsFilter:
+      Description: What your budget is for the month
+      Type: Number
+      # Default: 
+    BudgetAmountForWholeAccount:
+      Description: What your budget is for the month
+      Type: Number
+      # Default: 
+    Currency:
+      Description: The currency of your budget
+      Type: String
+      Default: 
+    FirstThresholdForBudgetForWholeAccount:
+      Description: The first threshold for Budget for whole account at which you'll receive a notification
+      Type: Number
+      Default: 
+    SecondThresholdForBudgetForWholeAccount:
+      Description: The first threshold for Budget for whole account at which you'll receive a notification
+      Type: Number
+      Default: 
+    FirstThresholdForBudgetWithTagsFilter:
+      Description: The first threshold at which you'll receive a notification for Tags Filter
+      Type: Number
+      Default: 
+    SecondThresholdForBudgetWithTagsFilter:
+      Description: The second threshold at which you'll receive a notification
+      Type: Number
+      Default:
+    FirstThresholdForBudgetForMaketPlaceSubscrpition:
+      Description: The first threshold at which you'll receive a notification for Tags Filter
+      Type: Number
+      Default: 
+    SecondThresholdForBudgetForMaketPlaceSubscrpition:
+      Description: The second threshold at which you'll receive a notification
+      Type: Number
+      Default:   
+
+  # Tag Identifiers
+
+    ApplicationName:
+      Description: The Application for which this Env will be used, This will also be used in the resource naming 
+      Type: String
+      # Default: FSP
+
+    ApplicationID:
+      Description: The Application ID to be used for this Cluster, this can be verified from CMDB
+      Type: String
+      # Default: 'FSP01'
+    
+    ApplicationOwner:
+      Description: The Application Owner, specify Email Address from Active Directory as shown below
+      Type: String
+      # Default: ""
+    
+
+Mappings: 
+  EnvironmentMap: 
+    dev:
+      ##vpc: <dev-vpc>
+      ##subnet : <dev-subnet>
+    preprod:
+      ##vpc: <preprod-vpc>
+      ##subnet : <preprod-subnet>
+    prod:
+      ##vpc: <prod-vpc>
+      ##subnet : <prod-subnet> 
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Resource Naming Convention 
+        Parameters:
+          - ResName
+          - RegionName
+          - Environment
+          - SystemName
+          
+      -
+        Label:
+          default: SNS Parameters 
+        Parameters:
+          - SNSTopic
+          - BudgetSNSTopic1
+
+      -    
+        Label:
+          default: BudgetForWholeAccount 
+        Parameters:
+          - NameForBudgetForWholeAccount
+          - BudgetAmountForWholeAccount
+          - FirstThresholdForBudgetForWholeAccount
+          - SecondThresholdForBudgetForWholeAccount
+      -
+        Label:
+          default: BudgetWithTagsFilter 
+        Parameters:
+          - NameForBudgetWithTagsFilter
+          - BudgetAmountWithTagsFilter
+          - FirstThresholdForBudgetWithTagsFilter
+          - SecondThresholdForBudgetWithTagsFilter
+          - CostCenter
+          - ApplicationName
+      -
+        Label:
+          default: BudgetForAWSMarketPlaceSubscription 
+        Parameters:
+          - NameForBudgetForAWSMarketPlaceSubscription
+          - BudgetAmountForAWSMarketPlaceSubscription
+          - FirstThresholdForBudgetForMaketPlaceSubscrpition
+          - SecondThresholdForBudgetForMaketPlaceSubscrpition
+
+      -
+        Label:
+          default: Alarm Thresholds
+        Parameters:
+          - S3BucketSizeThreshold
+          - S3BucketTotalLatencyThreshold
+          - DynamoDBReadCapacityThreshold
+          - DynamoDBWriteCapacityThreshold
+     
+      -
+        Label:
+          default: Tag Identifiers
+        Parameters:
+          - ApplicationName
+          - ApplicationID
+          - ApplicationOwner       
+          - BusinessUnit
+          - Department
+          - CostCenter
+          - ServerType
+          - ComplianceRequirement
+          - Entity
+          - Region
+          - UsagePattern
+          - MaxLifeTime
+          - AppCat
+
+Resources:
+  # Resource Alarms SNS Topic
+    SNSTopic:
+      Type: 'AWS::SNS::Topic'
+      Properties:
+        ##TopicName: <BU>ResourceAlarmTopic
+        Subscription:
+        - Endpoint: !Ref SubscriptionEndPoint
+          Protocol: email
+        Tags:
+          - 
+            Key: "ApplicationName"
+            Value: !Ref ApplicationName
+                   
+    SNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Principal:
+                  AWS: '*'
+                Action: 
+                  - 'SNS:Publish'
+                  - 'SNS:RemovePermission'
+                  - 'SNS:SetTopicAttributes'
+                  - 'SNS:DeleteTopic'
+                  - 'SNS:ListSubscriptionsByTopic'
+                  - 'SNS:GetTopicAttributes'
+                  - 'SNS:Receive'
+                  - 'SNS:AddPermission'
+                  - 'SNS:Subscribe'
+                Resource: !Ref SNSTopic
+                Condition:
+                  StringEquals:
+                    'AWS:SourceOwner': !Ref AWS::AccountId
+        Topics:
+         - !Ref SNSTopic
+
+  # Budget Alarms SNS Topic
+    BudgetSNSTopic1:
+      Type: 'AWS::SNS::Topic'
+      Properties:
+        ##TopicName : BudgetNotificationTopic-<BU>
+        Subscription:
+          - Endpoint: !Ref SubscriptionEndPointBudget
+            Protocol: email
+        Tags:
+          - 
+            Key: "ApplicationName"
+            Value: !Ref ApplicationName
+       
+    BudgetSNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: budgets.amazonaws.com
+              Action: 'sns:Publish'
+              Resource: !Ref BudgetSNSTopic1
+        Topics:
+          - !Ref BudgetSNSTopic1   
+
+  # Budget With Tags Filter
+    BudgetWithTagsFilter:
+      Type: AWS::Budgets::Budget
+      Properties:
+        Budget:
+          BudgetName: !Ref NameForBudgetWithTagsFilter
+          BudgetLimit:
+            Amount: !Ref BudgetAmountWithTagsFilter
+            Unit: !Ref Currency
+          TimeUnit: MONTHLY
+          BudgetType: COST
+          CostFilters:
+            TagKeyValue:
+              - !Join [ "", [ "user:ApplicationName" , "$", !Ref ApplicationName  ]] 
+              - !Join [ "", [ "user:CostCenter" , "$",!Ref CostCenter]] 
+        # "A budget can have up to five notifications. Each notification must have at least one subscriber.
+        # A notification can have one SNS subscriber and up to ten email subscribers, for a total of 11 subscribers."
+        NotificationsWithSubscribers:
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: ACTUAL
+              Threshold: !Ref FirstThresholdForBudgetWithTagsFilter
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - SubscriptionType: SNS
+                Address: !Ref BudgetSNSTopic1
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: ACTUAL
+              Threshold: !Ref SecondThresholdForBudgetWithTagsFilter
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - SubscriptionType: SNS
+                Address: !Ref BudgetSNSTopic1
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: FORECASTED
+              Threshold: 100
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - SubscriptionType: SNS
+                Address: !Ref BudgetSNSTopic1
+  
+    BudgetForWholeAccount:
+      Type: AWS::Budgets::Budget
+      Properties:
+        Budget:
+          BudgetName: !Ref NameForBudgetForWholeAccount
+          BudgetLimit:
+            Amount: !Ref BudgetAmountForWholeAccount
+            Unit: !Ref Currency
+          TimeUnit: MONTHLY
+          BudgetType: COST
+        NotificationsWithSubscribers:
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: ACTUAL
+              Threshold: !Ref FirstThresholdForBudgetForWholeAccount
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - SubscriptionType: SNS
+                Address: !Ref BudgetSNSTopic1
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: ACTUAL
+              Threshold: !Ref SecondThresholdForBudgetForWholeAccount
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - SubscriptionType: SNS
+                Address: !Ref BudgetSNSTopic1
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: FORECASTED
+              Threshold: 100
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - SubscriptionType: SNS
+                Address: !Ref BudgetSNSTopic1
+
+  # S3 Buckets
+
+    S3BucketRawData:
+      Type: AWS::S3::Bucket
+      # DeletionPolicy: Retain
+      Properties:
+        BucketName: !Sub '${RegionName}s3${ResName}01.${SystemName}.raw.data'
+        MetricsConfigurations:
+         - Id: EntireBucket        
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        AccessControl: BucketOwnerFullControl
+        PublicAccessBlockConfiguration: 
+          BlockPublicAcls : true
+          BlockPublicPolicy : true
+          IgnorePublicAcls : true
+          RestrictPublicBuckets : true
+        VersioningConfiguration:
+          Status: Enabled  
+        Tags:
+          - 
+            Key: "ApplicationName"
+            Value: !Ref ApplicationName
+  
+    S3BucketSizeRawDataAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      Properties:
+        AlarmDescription: S3BucketSizeNotiificationsAlarm
+        AlarmName : !Join [ "", [ data-S3BucketSizeNotiificationsAlarm" ]]
+        MetricName: BucketSizeBytes
+        Namespace: AWS/S3
+        Statistic: Maximum
+        Period: '86400'
+        EvaluationPeriods: '1'
+        Threshold: !Ref S3BucketSizeThreshold
+        AlarmActions: 
+          - !Ref SNSTopic 
+        Dimensions: 
+           - Name: BucketName
+             Value: !Sub '$data' 
+           - Name: StorageType
+             Value: StandardStorage		
+        ComparisonOperator: GreaterThanOrEqualToThreshold 
+    S3BucketRequestLatencyRawDataAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      Properties:
+        AlarmDescription: S3BucketRequestLatencyAlarm
+        AlarmName : !Join [ "", [ !Ref RegionName ,"s3" ,"01.",!Ref SystemName , ".raw.data-S3BucketRequestLatencyAlarm" ]]
+        MetricName: TotalRequestLatency
+        Namespace: AWS/S3
+        Statistic: Average
+        Period: '86400'
+        EvaluationPeriods: '1'
+        Threshold: '1000'
+        AlarmActions: 
+          - !Ref SNSTopic         
+        Dimensions: 
+           - Name: BucketName
+             Value: !Sub '${RegionName}s3${ResName}01.${SystemName}.Raw.Data' 
+           - Name: StorageType
+             Value: StandardStorage		
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+
+    
+    S3BucketServicesConfig:
+      Type: AWS::S3::Bucket
+      # DeletionPolicy: Retain
+      Properties:
+        BucketName: !Sub '${RegionName}s3${ResName}01.services.config'
+        MetricsConfigurations:
+         - Id: EntireBucket        
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        AccessControl: BucketOwnerFullControl
+        PublicAccessBlockConfiguration: 
+          BlockPublicAcls : true
+          BlockPublicPolicy : true
+          IgnorePublicAcls : true
+          RestrictPublicBuckets : true
+        VersioningConfiguration:
+          Status: Enabled
+ 
+        Tags:
+          - 
+            Key: "ApplicationName"
+            Value: !Ref ApplicationName
+        
+
+  S3BucketPolicyServicesConfig:
+    Type: AWS::S3::BucketPolicy
+      Properties: 
+        Bucket: !Ref S3BucketServicesConfig
+        PolicyDocument: 
+          Version: '2012-10-17'
+          Statement:
+          - Sid: '112'
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+            - s3:PutObject
+            - s3:GetBucketPolicy
+            - s3:GetObject
+            - s3:ListBucket
+            Resource:
+            ##- arn:aws:s3:::<bucketname>/*
+            ##- arn:aws:s3:::<bucketname>
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: o-zxei9m1jjy
+          - Effect: Deny
+            Principal: "*"
+            Action: "*"
+            ##Resource: arn:aws:s3:::<bucketname>/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'    
+                  
+    S3BucketSizeConfigDataAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      Properties:
+        AlarmDescription: S3BucketSizeNotiificationsAlarm
+        AlarmName : !Join [ "", [services.config-S3BucketSizeNotiificationsAlarm" ]]
+        MetricName: BucketSizeBytes
+        Namespace: AWS/S3
+        Statistic: Maximum
+        Period: '86400'
+        EvaluationPeriods: '1'
+        Threshold: !Ref S3BucketSizeThreshold
+        AlarmActions: 
+          - !Ref SNSTopic 
+        Dimensions: 
+           - Name: BucketName
+             Value: !Sub '${RegionName}s3${ResName}01.services.config' 
+           - Name: StorageType
+             Value: StandardStorage		
+        ComparisonOperator: GreaterThanOrEqualToThreshold 
+    S3BucketRequestLatencyConfigDataAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      Properties:
+        AlarmDescription: S3BucketRequestLatencyAlarm
+        AlarmName : !Join [ "ervices.config-S3BucketRequestLatencyAlarm" ]]
+        MetricName: TotalRequestLatency
+        Namespace: AWS/S3
+        Statistic: Average
+        Period: '86400'
+        EvaluationPeriods: '1'
+        Threshold: '1000'
+        AlarmActions: 
+          - !Ref SNSTopic         
+        Dimensions: 
+           - Name: BucketName
+             Value: !Sub '$config' 
+           - Name: StorageType
+             Value: StandardStorage		
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+
+  # DynamoDB Tables     
+    DynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties: 
+        AttributeDefinitions: 
+        - 
+          AttributeName: "JobName"
+          AttributeType: "S"
+        KeySchema: 
+        - 
+          AttributeName: "JobName"
+          KeyType: "HASH" 
+        ProvisionedThroughput: 
+          ReadCapacityUnits: "5"
+          WriteCapacityUnits: "5"
+        TableName: 
+        Tags:
+          - 
+            Key: "ApplicationName"
+            Value: !Ref ApplicationName
+        
+    DynamoDBTableConsumedReadCapacityAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      Properties:
+        AlarmDescription: DynamoDBConsumedReadCapacityAlarm
+        AlarmName : DynamoDBConsumedReadCapacityAlarm
+        MetricName: ConsumedReadCapacityUnits
+        Namespace: AWS/DynamoDB
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref DynamoDBReadCapacityThreshold
+        AlarmActions:
+          - !Ref SNSTopic 
+        Dimensions: 
+           - Name: TableName
+             Value: 
+        ComparisonOperator: GreaterThanOrEqualToThreshold     
+    DynamoDBTableConsumedWriteCapacityAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      Properties:
+        AlarmDescription: DynamoDBConsumedWriteCapacityAlarm
+        AlarmName : DynamoDBConsumedWriteCapacityAlarm
+        MetricName: ConsumedWriteCapacityUnits
+        Namespace: AWS/DynamoDB
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref DynamoDBWriteCapacityThreshold
+        AlarmActions:
+          - !Ref SNSTopic 
+        Dimensions: 
+           - Name: TableName
+             Value:
+        ComparisonOperator: GreaterThanOrEqualToThreshold     
+           
+
+  # Lambda Function CR
+
+    LambdaFunctionCR:
+      Type: AWS::Lambda::Function
+      Properties: 
+        Code: 
+            S3Bucket: !Sub '${RegionName}s3${ResName}01.services.config'
+            ##S3Key: !Join [ "", ["infrastructure/", "lambda/", !Ref RegionName, lbrhv01CR", !Ref LambdaCRVersion, ".zip"] ]      
+        Description: "Custom Resource Lambda Function to insert DynamoDB records"
+        FunctionName: !Join [ ""] 
+        Handler: lambda_function.lambda_handler
+        Environment:
+          Variables:
+            bucket: !Sub '$'
+        MemorySize: 128
+        ##Role: !Join [ "", [ "arn:aws:iam::" , !Ref AWS::AccountId , ":role/<LambdaRoleName>" ]]
+        Runtime: python3.8
+        Timeout: 90
+        Tags:
+          - 
+            Key: "ApplicationName"
+            Value: !Ref ApplicationName
+         

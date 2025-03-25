@@ -1,0 +1,481 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template to create SF, Insert Records to DynamoDB, Glue Jobs, SNSTopic, CloudWatch Alarms for corresponding resources'
+
+Parameters:
+
+  ## Resource Naming Convention 
+    
+    ResName:
+      Description: Specify 2 characters Environment, 2 characters of Application/Function 
+      Type: String
+      ##Default: prra
+    
+
+    RegionName:
+      Description: Specify 2 characters RegionName. 
+      Type: String
+      Default: nv
+      # AllowedValues:
+   
+
+    Environment:
+      Description: Environment for the Service, This will also be used in the resource naming
+      Type: String
+      ## Default: prod
+      # AllowedValues:
+   
+      
+    SystemName:
+      Description: Select The system for which resources have to be created.
+      Type: String
+      ## Default: ctd-glue
+
+
+  # Version Parameters
+    GlueJobVersion:
+      Description: S3 object key version of the Glue Script. This enables to update the Glue Job
+      Type: String
+      # Default: v1
+
+    StepFunctionVersion:
+      Description: S3 object key version of the Step Function definition. This enables to update the SF.
+      Type: String
+      # Default: v1
+
+    DynamoDBConfigFileVersion:
+      Description: version of the DynamoDB config files. This enables to run the CR during updates
+      Type: String
+      # Default: v1
+
+    LambdaVersion:
+      Description: S3 object key version of the Zip package. This enables to update the lambda.
+      Type: String
+      # Default: v1 
+
+  ## SNS Parameters
+    SubscriptionEndPoint:
+      Type: String
+      Description: The endpoint that receives notifications from the Amazon SNS topic. The
+          endpoint value depends on the protocol that you specify. This could be a
+          URL or ARN
+      # Default:  DL_AACOE_CDP_SUPP_TEAM@carrier.com
+
+  ## Alarm Thresholds
+    GlueJobAllJVMHeapUsageThreshold:
+      Type: Number
+      Description: The fraction of memory used by the JVM heap for this driver,  executor identified by ALL executors. provide value between 0-1
+      # Default:  1.0
+      MaxValue:  1
+    GlueJobAllCPUSystemLoadThreshold:
+      Type: Number
+      Description: The fraction of CPU system load used by the driver, an executor identified by ALL executors.provide value between 0-1
+      # Default:  1.0
+      MaxValue:  1
+    GlueJobFailedTasksThreshold:
+      Type: Number
+      Description: GlueJob FailedTasks Threshold
+      # Default:  1
+    StepFunctionExecutionsFailedAlarmThreshold:
+      Type: Number
+      Description: StepFunction Executions Failed Threshold
+      # Default:  1
+    StepFunctionExecutionsAbortedAlarmThreshold:
+      Type: Number
+      Description: StepFunction Executions Aborted Threshold
+      # Default:  1
+    StepFunctionExecutionsTimedOutAlarmThreshold:
+      Type: Number
+      Description: StepFunction Executions TimedOut  Threshold
+      # Default:  1
+
+  ## Secret Parameters
+    
+    Url:
+      Description:  DB Url for JDE MEXICO
+      Type: String
+      # Default: "
+    UserName:
+      Description: DB Username for JDE MEXICO
+      Type: String
+      # Default: "" 
+      NoEcho: true
+    Password:
+      Description: DB Password for JDE MEXICO
+      Type: String
+      # Default: ""
+
+  # SageMaker Parameters
+    SageMakerInstanceType:
+      Description: Instance Type for SageMaker Instance
+      Type: String
+      # Default: ml.t2.xlarge
+    SageMakerInstanceVolume:
+      Description: Volume Size For SageMaker Notebook Instance
+      Type: Number
+      # Default: 5
+    UserData:
+      Description: Instance Type for SageMaker Instance
+      Type: String
+      # Default: testing
+    
+ 
+  # Cloud watch Schedule
+    CloudwatchSchedule:
+      Description: Schedule for the cloudwatch event rule
+      Type: String
+      # Default: "(0 6 * * ? *)"
+    CloudwatchRuleState:
+      Description: Specify the cloudwatch event rule state 
+      Type: String
+      # Default: ENABLED
+      # AllowedValues:
+      # - DISABLED
+      # - ENABLED
+
+Mappings: 
+  SeqMap: 
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Resource Naming Convention 
+        Parameters:
+          - ResName
+          - RegionName
+          - Environment
+      -
+        Label:
+          default: Selection 
+        Parameters:
+          - SystemName
+      -
+        Label:
+          default: Alarm Thresholds
+        Parameters:
+          - GlueJobAllJVMHeapUsageThreshold
+          - GlueJobAllCPUSystemLoadThreshold
+          - GlueJobFailedTasksThreshold
+      -
+        Label:
+          default: SNS Parameters 
+        Parameters:
+          - SNSTopic
+      
+      -
+        Label:
+          default: Tag Identifiers
+        Parameters:
+          - ApplicationName
+          - ApplicationID
+          - ApplicationOwner       
+          - BusinessUnit
+          - Department
+          - CostCenter
+          - ServerType
+          - ComplianceRequirement
+          - Entity
+          - Region
+          - UsagePattern
+          - MaxLifeTime
+          - AppCat
+
+Resources:
+  # SNS Topic
+    SNSTopic:
+      Type: 'AWS::SNS::Topic'
+      Properties:
+        TopicName: !Join [ "", [ !Ref RegionName, sn, !Ref ResName, !FindInMap [SeqMap, !Ref Name, seq]] ]
+        Subscription:
+        - Endpoint: !Ref SubscriptionEndPoint
+          Protocol: email
+        Tags:
+                  
+    SNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Principal:
+                  AWS: '*'
+                Action: 
+                  - 'SNS:Publish'
+                  - 'SNS:RemovePermission'
+                  - 'SNS:SetTopicAttributes'
+                  - 'SNS:DeleteTopic'
+                  - 'SNS:ListSubscriptionsByTopic'
+                  - 'SNS:GetTopicAttributes'
+                  - 'SNS:Receive'
+                  - 'SNS:AddPermission'
+                  - 'SNS:Subscribe'
+                Resource: !Ref SNSTopic
+                Condition:
+                  StringEquals:
+                    'AWS:SourceOwner': !Ref AWS::AccountId
+        Topics:
+         - !Ref SNSTopic  
+
+  # Secret Manager
+    Secret:
+      Type: 'AWS::SecretsManager::Secret'
+      Properties:
+        Name: !Join [ "", [ !Ref RegionName, sm, !Ref ResName, !FindInMap [SeqMap, !Ref Name, seq]] ] 
+        ##Description: "Credentials for <name> secret"
+        SecretString:  !Join [ "", ['{"url":"' , !Ref Url,
+        '","username":"' ,!Ref UserName,
+        '","password":"' ,!Ref Password, '"}'] ]
+
+        Tags:
+          
+
+  #Glue Jobs
+    #Glue Connection is always 01
+    GlueJob:
+      Type: AWS::Glue::Job
+      Properties:
+        Connections:
+          Connections:
+            - !Join [ "", [ !Ref RegionName, cn, !Ref ResName,  "01"] ]
+        GlueVersion : "2.0"
+        Command:
+          Name: glueetl
+          ##ScriptLocation: !Join [ "", [ "s3://" , !Ref RegionName , s3, !Ref ResName, "01.", !Ref SystemName ,".services.config/application/scripts/", !Ref RegionName , "gjra", !FindInMap [SeqMap, !Ref Name, seq], !Ref GlueJobVersion, "-raw.py" ]]
+          PythonVersion : 3
+        DefaultArguments:
+          '--job-bookmark-option': job-bookmark-disable
+         # '--TempDir': !Join [ "", [ "s3://" , !Ref RegionName , s3, !Ref ResName, "01.", !Ref SystemName, ".services.config/eap-pipeline/application/parameters/", !Ref Environment  , "/scripts/" ]]
+          '--TempDir': !Join [ "", [ "s3://" , !Ref RegionName , s3, !Ref ResName, "01.", !Ref SystemName , ".services.config/temp/" ]]
+        ExecutionProperty:
+          MaxConcurrentRuns: 5
+        MaxRetries: 0
+        Name: !Join [ ""]
+        NumberOfWorkers: 2
+        ##Role: !Join [ "", [ "arn:aws:iam::" , !Ref AWS::AccountId , ":role/**" ]]
+        Timeout: 120
+        WorkerType: 'Standard'
+        Tags : {
+        "ApplicationName": !Ref ApplicationName,
+        "ApplicationID": !Ref  ApplicationID,
+        "ApplicationOwner": !Ref ApplicationOwner,
+        "BusinessUnit": !Ref  BusinessUnit,
+        "Department": !Ref Department,
+        "CostCenter": !Ref  CostCenter,
+        "ServerType": !Ref ServerType,
+        "ComplianceRequirement": !Ref  ComplianceRequirement,
+        "Entity": !Ref Entity,
+        "Environment": !Ref  Environment,
+        "Region": !Ref Region,
+        "UsagePattern": !Ref  UsagePattern,
+        "MaxLifeTime": !Ref MaxLifeTime,
+        "AppCat": !Ref  AppCat,
+      }
+    GlueAlljvmheapusageAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      DependsOn: GlueJob
+      Properties:
+        AlarmDescription: GlueAlljvmheapusageAlarm
+        AlarmName : !Join [ "", [!Ref GlueJob, "-GlueAlljvmheapusageAlarm"] ]
+        MetricName: glue.ALL.jvm.heap.usage
+        Namespace: Glue
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref GlueJobAllJVMHeapUsageThreshold
+        AlarmActions:
+          - !Ref SNSTopic
+        Dimensions:
+           - Name: Type
+             Value: gauge
+           - Name: JobRunId
+             Value: ALL
+           - Name: JobName
+             Value: !Ref GlueJob
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+    GluedriversystemcpuSystemLoadAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      DependsOn: GlueJob
+      Properties:
+        AlarmDescription: GluedriversystemcpuSystemLoadAlarm
+        AlarmName : !Join [ "", [!Ref GlueJob, "-GluedriversystemcpuSystemLoadAlarm"] ]
+        MetricName: glue.driver.system.cpuSystemLoad
+        Namespace: Glue
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref GlueJobAllCPUSystemLoadThreshold
+        AlarmActions:
+          - !Ref SNSTopic
+        Dimensions:
+           - Name: Type
+             Value: gauge
+           - Name: JobRunId
+             Value: ALL
+           - Name: JobName
+             Value: !Ref GlueJob
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      
+  # Step Function
+    StepFunction:
+      Type: AWS::StepFunctions::StateMachine
+      Properties:
+        DefinitionS3Location:
+          Bucket:  !Sub '${RegionName}s3${ResName}01.${SystemName}.services.config'
+          ##Key: !Join [ "", [ "application/stepfunction/", !Ref RegionName, sfra, !FindInMap [SeqMap, !Ref Name, seq], !Ref StepFunctionVersion, ".json"] ]
+        RoleArn: !Join [ "", [ "arn:aws:iam::" , !Ref AWS::AccountId , ":role/" ]]
+        StateMachineName: !Join [ "" ]
+        Tags:
+          
+    StepFunctionExecutionsFailedAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      DependsOn:  StepFunction
+      Properties:
+        AlarmDescription: StepFunctionExecutionsFailedAlarm
+        AlarmName : !Join [ "", [Fn::GetAtt: ["StepFunction", "Name" ], "-ExecutionsFailedAlarm"] ]
+        MetricName: ExecutionsFailed
+        Namespace: AWS/States
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref StepFunctionExecutionsFailedAlarmThreshold
+        AlarmActions:
+          - !Ref SNSTopic
+        Dimensions:
+          - Name: StateMachineArn
+            Value: !Ref StepFunction
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+    StepFunctionExecutionsAbortedAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      DependsOn:  StepFunction
+      Properties:
+        AlarmDescription: StepFunctionExecutionsAbortedAlarm
+        AlarmName : !Join [ "", [Fn::GetAtt: ["StepFunction", "Name" ],"-ExecutionsAbortedAlarm"] ]
+        MetricName: ExecutionsAborted
+        Namespace: AWS/States
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref StepFunctionExecutionsAbortedAlarmThreshold
+        AlarmActions:
+          - !Ref SNSTopic
+        Dimensions:
+          - Name: StateMachineArn
+            Value: !Ref StepFunction
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+    StepFunctionExecutionsTimedOutAlarm:
+      Type: 'AWS::CloudWatch::Alarm'
+      DependsOn:  StepFunction
+      Properties:
+        AlarmDescription: StepFunctionExecutionsTimedOutAlarm
+        AlarmName : !Join [ "", [Fn::GetAtt: ["StepFunction", "Name" ], "-ExecutionsTimedOutAlarm"] ]
+        MetricName: ExecutionsTimedOut
+        Namespace: AWS/States
+        Statistic: Maximum
+        Period: '300'
+        EvaluationPeriods: '1'
+        Threshold: !Ref StepFunctionExecutionsTimedOutAlarmThreshold
+        AlarmActions:
+          - !Ref SNSTopic
+        Dimensions:
+          - Name: StateMachineArn
+            Value: !Ref StepFunction
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+
+  # CloudWatch Schedule
+    ScheduledRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: !Join [ "" ]
+        ##Description: "Auto schedule for < name> Step Function"
+        ScheduleExpression: !Ref CloudwatchSchedule
+        State: !Ref CloudwatchRuleState
+        Targets:
+          -
+            Arn:
+              Fn::GetAtt:
+                - "StepFunction"
+                - "Arn"
+            ##RoleArn: !Join [ "", [ "arn:aws:iam::" , !Ref AWS::AccountId , ":role/Role" ]]
+            Id: "TargetFunctionV1"
+            ##Input : !Join [ ""]
+
+  # SageMaker
+              
+    SageMakerNotebook:
+      Type: AWS::SageMaker::NotebookInstance
+      Properties: 
+        DirectInternetAccess: Disabled
+        InstanceType: !Ref SageMakerInstanceType
+        NotebookInstanceName: !Join [ ""] 
+        ##RoleArn: !Join [ "", [ "arn:aws:iam::" , !Ref AWS::AccountId , ":role/Role" ]]
+        SecurityGroupIds: 
+            - !FindInMap [EnvironmentMap, !Ref Environment, sg]
+        SubnetId: !FindInMap [EnvironmentMap, !Ref Environment, subnet]
+        VolumeSizeInGB: !Ref SageMakerInstanceVolume
+        LifecycleConfigName: !GetAtt SageMakerLifecycleConfig.NotebookInstanceLifecycleConfigName
+        Tags:
+          
+    SageMakerLifecycleConfig:
+      Type: 'AWS::SageMaker::NotebookInstanceLifecycleConfig'
+      Properties:
+        NotebookInstanceLifecycleConfigName: !Join [ ""]
+        OnStart:
+          - Content:
+              'Fn::Base64': !Ref UserData
+
+  # Lambda Function
+    LambdaFunction:
+      Type: AWS::Lambda::Function
+      Properties: 
+        Code: 
+            S3Bucket: !Sub '${RegionName}s3${ResName}01.services.config'
+            ##S3Key: !Join [ "", ["infrastructure/", "lambda/", !Ref RegionName, "lbrhv01", !Ref LambdaVersion, ".zip"] ]      
+        ##Description: "Lambda Function for <>"
+        FunctionName: !Join [ "" ]
+        Handler: lambda_function.lambda_handler
+        Environment:
+          Variables:
+            bucket: !Sub '${RegionName}s3${ResName}01.services.config'
+        MemorySize: 128
+        ##Role: !Join [ "", [ "arn:aws:iam::" , !Ref AWS::AccountId , ":role/Role" ]]
+        Runtime: python3.8
+        Timeout: 90
+        Tags:
+          
+    InsertRecords:
+      Type: 'Custom::InsertRecords'
+      Properties:
+        ServiceToken:  !Join [ "", [ "arn:aws:lambda:" , !Ref AWS::Region , ":" ,!Ref AWS::AccountId, ":", "function",  ":", !Ref RegionName, lb, !Ref ResName,  "01CR" ]]
+        workfLowFilePath: !Join [ "", ["application/parameters/", !Ref Environment ,"/dynamodb_", !Ref Name , "_Workflow_", !Ref ResName, !Ref DynamoDBConfigFileVersion,".json" ]]
+        schedulerFilePath: !Join [ "", ["application/parameters/", !Ref Environment, "/dynamodb_", !Ref Name , "_Scheduler_", !Ref ResName,!Ref DynamoDBConfigFileVersion , ".json" ]] 
+        Name: !Ref Name
+
+Outputs:
+  
+  # Glue 
+
+    GlueJobs:
+      Description: Name of Glue job RAW
+      Value: !Ref GlueJob
+  # Step Function
+    StepFunctionArn:
+      Description: Step Function ARN
+      Value: !Ref StepFunction
+  # Cloudwatch Schedule
+    CloudwatchScheduleName:
+      Description: Cloudwatch Schedule Name
+      Value: !Ref ScheduledRule
+  # SNS
+    SnsArn:
+      Description: SNS Topic Arn
+      Value: !Ref SNSTopic
+  # SageMaker Notebook Instance
+    NotebookInstanceArn:
+      Description: Notebook Instance ARN
+      Value: !Ref SageMakerNotebook
+  # Lambda
+    LambdaFunction:
+      Description: Name of the Lambda Function
+      Value: !Ref LambdaFunction

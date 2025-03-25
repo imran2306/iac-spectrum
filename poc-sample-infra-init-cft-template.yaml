@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template to create static Resources, Glue Connections, S3, DynamoDB Tables, CloudWatch Alarms for S3 and DynamoDB Tables, Budget' 
+
+Parameters:
+
+  # Resource Naming Convention 
+    
+    ResName:
+      Description: Specify 2 characters Environment, 2 characters of Application/Function 
+  
+    RegionName:
+      Description: Specify 2 characters RegionName. 
+      Type: String
+      Default: nv
+
+    Environment:
+      Description: Environment for the Service, This will also be used in the resource naming
+      Type: String
+      ##Default: <Select environment>
+  
+    SystemName:
+       Description: Select The system for which resources have to be created.
+       Type: String
+       ##Default: <enter system name>
+       # AllowedValues:
+
+
+  # Alarms Thresholds
+    S3BucketSizeThreshold :
+      Type: String
+      Description: Provide a Threshold value for the S3 Buckets Size to get Notified when the size limit is breached.
+      # Default:  
+    S3BucketTotalLatencyThreshold :
+      Type: String
+      Description: Provide a Threshold value for the S3 Bucket Total Latency - The elapsed per-request time from the first byte received to the last byte sent to an Amazon S3 bucket.
+      # Default:  
+
+
+  # Tag Identifiers
+
+    
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Resource Naming Convention 
+        Parameters:
+          - ResName
+          - RegionName
+          - Environment
+          - SystemName
+
+      -
+        Label:
+          default: Alarm Thresholds
+        Parameters:
+          - S3BucketSizeThreshold
+          - S3BucketTotalLatencyThreshold
+     
+      -
+        Label:
+          default: Tag Identifiers
+        Parameters:
+          - ApplicationName
+          - ApplicationID
+          - ApplicationOwner       
+          - BusinessUnit
+          - Department
+          - CostCenter
+          - ServerType
+          - ComplianceRequirement
+          - Entity
+          - Region
+          - UsagePattern
+          - MaxLifeTime
+          - AppCat
+
+Resources:
+  
+  # S3 Buckets
+
+    S3BucketServicesConfig:
+      Type: AWS::S3::Bucket
+      # DeletionPolicy: Retain
+      Properties:
+        BucketName: !Sub '$'
+        MetricsConfigurations:
+         - Id: EntireBucket        
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        AccessControl: BucketOwnerFullControl
+        PublicAccessBlockConfiguration: 
+          BlockPublicAcls : true
+          BlockPublicPolicy : true
+          IgnorePublicAcls : true
+          RestrictPublicBuckets : true
+        VersioningConfiguration:
+          Status: Enabled
+ 
+        Tags:
+          
+
+  # S3 Bucket Policy
+    S3BucketPolicyServicesConfig:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref S3BucketServicesConfig
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: '112'
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+            - s3:ListBucket
+            Resource:
+            ##- arn:aws:s3:::<artifact s3 bucket name>/*
+            ##- arn:aws:s3:::<artifact s3 bucket name>
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: o-
+          - Effect: Deny
+            Principal: "*"
+            Action: "*"
+            ##Resource: arn:aws:s3:::<artifact s3 bucket name>/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
